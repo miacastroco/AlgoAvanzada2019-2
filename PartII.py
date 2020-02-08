@@ -9,6 +9,8 @@ from quantopian.pipeline.filters import QTradableStocksUS
 from quantopian.optimize import TargetWeights
 import random
 from quantopian.pipeline.factors import Returns
+from quantopian.pipeline.factors import SimpleMovingAverage
+from quantopian.pipeline.data.psychsignal import stocktwits
 
 import pandas as pd
 import numpy as np
@@ -43,16 +45,34 @@ class Predictor(CustomFactor):
         self.nodosVisibles = nodosVisibles
         self.verb = True
         np_rng = np.random.RandomState(7860)
-
+        
+        value = Fundamentals.ebit.latest / Fundamentals.enterprise_value.latest
+        quality = Fundamentals.roe.latest
+        sentiment_score = SimpleMovingAverage(
+            inputs=[stocktwits.bull_minus_bear],
+            window_length=3,
+        )
+        workingCapital = Fundamentals.working_capital_per_share.latest
+        sGrowRate = Fundamentals.sustainable_growth_rate.latest
+        dividendYield = Fundamentals.forward_dividend_yield.latest
 
         self.pesos = np.asarray(np_rng.uniform(
                     low = -4 * np.sqrt(6. / (nodosOcultos + nodosVisibles)),
                     high = 4 * np.sqrt(6. / (nodosOcultos + nodosVisibles)),
                     size = (nodosVisibles, nodosOcultos)))
-
+        
+        self.pesosT = (
+            value +
+            quality +
+            sentiment_score +
+            workingCapital +
+            sGrowRate +
+            dividendYield
+        ) / (np.mean(self.pesos))
 
         self.pesos = np.insert(self.pesos, 0, 0, axis = 0)
         self.pesos = np.insert(self.pesos, 0, 0, axis = 1)
+        
 
 
     
@@ -149,13 +169,8 @@ def make_pipeline():
     return pipe
 
 def rebalance(context,data):
-
     pipeline_output_df = pipeline_output('my_pipeline').dropna(how='any')
-    
     todays_predictions = pipeline_output_df.Model
-
     target_weight_series = todays_predictions.sub(todays_predictions.mean())
-
     target_weight_series = target_weight_series*random.random()/target_weight_series.abs().sum()
-    
     order_optimal_portfolio(objective=TargetWeights(target_weight_series),constraints=[])
